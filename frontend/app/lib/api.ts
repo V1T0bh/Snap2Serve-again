@@ -1,4 +1,4 @@
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL;
+const BACKEND = "https://snap2serve-backend-452474271642.asia-southeast1.run.app";
 
 /**
  * Upload an image to backend and get back detected ingredients.
