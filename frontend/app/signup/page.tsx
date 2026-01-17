@@ -243,9 +243,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     transition: "border-color 0.3s ease",
     boxSizing: "border-box",
-    "::placeholder": {
-      color: "rgba(255,255,255,0.5)",
-    },
   },
   primary: {
     width: "100%",
