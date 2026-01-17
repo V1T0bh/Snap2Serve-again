@@ -14,7 +14,7 @@ type Recipe = {
   missing_items?: string[];
 };
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function ResultsPage() {
   const router = useRouter();
