@@ -14,9 +14,14 @@ async def upload_image_route(image: UploadFile = File(...)) -> Dict[str, Any]:
     cv_result = await detect_ingredients_via_cv(
         image_bytes=image_bytes,
         filename=image.filename or "image.jpg",
-        content_type=image.content_type or "image/jpeg",
+        content_type=image.content_type or "application/octet-stream",
     )
 
-    # Return exactly what frontend expects:
-    # { "ingredients_detected": [ {"name": "...", "confidence": ...}, ... ] }
-    return cv_result
+    # Ensure shape is what frontend expects
+    if "ingredients_detected" not in cv_result:
+        raise HTTPException(status_code=502, detail={"error": "CV response missing ingredients_detected", "raw": cv_result})
+
+    return {
+        "ingredients_detected": cv_result["ingredients_detected"]
+    }
+
