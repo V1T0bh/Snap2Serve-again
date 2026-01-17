@@ -1,683 +1,297 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-
-type Ingredient = { name: string; confidence?: number };
-
-type Recipe = {
-  title: string;
-  time_mins?: number;
-  difficulty?: string;
-  ingredients?: { name: string; amount?: string }[];
-  steps?: string[];
-  missing_items?: string[];
-  source_confidence?: number;
-};
+import { useRouter } from "next/navigation";
 
 export default function Page() {
-  // ✅ change this if your backend runs on a different port
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+  const router = useRouter();
 
-  // ===== Upload state =====
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
 
-  // ===== Ingredients state =====
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [newIng, setNewIng] = useState("");
-
-  // ===== Recipes state =====
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-
-  // ===== Shopping list =====
-  const [shopping, setShopping] = useState<string[]>([]);
-
-  // ===== UI state =====
-  const [loadingScan, setLoadingScan] = useState(false);
-  const [loadingRecipes, setLoadingRecipes] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canScan = useMemo(() => !!file && !loadingScan, [file, loadingScan]);
-  const canGenRecipes = useMemo(
-    () => ingredients.length > 0 && !loadingRecipes,
-    [ingredients.length, loadingRecipes]
-  );
+  const canContinue = useMemo(() => !!file && prompt.trim().length > 0, [file, prompt]);
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     setFile(f);
-    setIngredients([]);
-    setRecipes([]);
-    setShopping([]);
-    setError(null);
-
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-
-    if (f) {
-      setPreviewUrl(URL.createObjectURL(f));
-    } else {
-      setPreviewUrl(null);
-    }
+    setPreviewUrl(f ? URL.createObjectURL(f) : null);
   }
 
-  function removeIngredient(i: number) {
-    setIngredients((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  function renameIngredient(i: number, newName: string) {
-    setIngredients((prev) =>
-      prev.map((x, idx) => (idx === i ? { ...x, name: newName } : x))
-    );
-  }
-
-  function addIngredient(name: string) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-
-    const exists = ingredients.some(
-      (x) => x.name.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (exists) return;
-
-    setIngredients((prev) => [...prev, { name: trimmed }]);
-  }
-
-  function addMissingToShopping(items: string[]) {
-    setShopping((prev) => {
-      const seen = new Set(prev.map((x) => x.toLowerCase()));
-      const out = [...prev];
-      for (const it of items) {
-        const t = it.trim();
-        if (!t) continue;
-        if (!seen.has(t.toLowerCase())) {
-          out.push(t);
-          seen.add(t.toLowerCase());
-        }
-      }
-      return out;
-    });
-  }
-
-  function removeShoppingItem(i: number) {
-    setShopping((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  async function copyShoppingList() {
-    try {
-      await navigator.clipboard.writeText(shopping.join("\n"));
-      alert("Copied shopping list ✅");
-    } catch {
-      alert("Copy blocked by browser. You can manually select + copy.");
-    }
-  }
-
-  async function handleScanIngredients() {
+  function handleContinue() {
     if (!file) return;
-
-    setLoadingScan(true);
-    setError(null);
-    setRecipes([]);
-    setShopping([]);
-
-    try {
-      const form = new FormData();
-      form.append("image", file);
-
-      const res = await fetch(`${API_BASE}/vision/ingredients`, {
-        method: "POST",
-        body: form,
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Scan failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-
-      // expected: { ingredients: [{name, confidence}] } OR { ingredients: ["egg","rice"] }
-      const parsed: Ingredient[] = Array.isArray(data.ingredients)
-        ? data.ingredients.map((x: any) => ({
-            name: String(x?.name ?? x),
-            confidence:
-              typeof x?.confidence === "number" ? x.confidence : undefined,
-          }))
-        : [];
-
-      setIngredients(parsed);
-    } catch (e: any) {
-      setError(e?.message ?? "Scan failed. Is backend running?");
-    } finally {
-      setLoadingScan(false);
-    }
-  }
-
-  async function handleGenerateRecipes() {
-    setLoadingRecipes(true);
-    setError(null);
-    setRecipes([]);
-
-    try {
-      const payload = {
-        ingredients: ingredients.map((x) => x.name.trim()).filter(Boolean),
-      };
-
-      const res = await fetch(`${API_BASE}/agent/recipes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Recipes failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-      const recs: Recipe[] = Array.isArray(data.recipes) ? data.recipes : [];
-      setRecipes(recs);
-    } catch (e: any) {
-      setError(e?.message ?? "Recipe generation failed. Check backend URL.");
-    } finally {
-      setLoadingRecipes(false);
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      sessionStorage.setItem("snap2serve:image", dataUrl);
+      sessionStorage.setItem("snap2serve:prompt", prompt.trim());
+      router.push("/results");
+    };
+    reader.readAsDataURL(file);
   }
 
   return (
-    <div style={styles.page}>
-      <main style={styles.container}>
-        <header style={styles.header}>
-          <div>
-            <h1 style={styles.h1}>Snap2Serve</h1>
-            <p style={styles.sub}>
-              Upload → detect ingredients → verify recipes → build a shopping
-              list
-            </p>
-          </div>
-          <span style={styles.badge}>Theme • Purple + Green</span>
-        </header>
+    <div style={S.page}>
+      <header style={S.hero}>
+        {/* dark overlay for readability */}
+        <div style={S.heroOverlay} />
+        {/* NEW: soft vignette (no bar) */}
+        <div style={S.heroVignette} />
 
-        {/* Upload */}
-        <section style={styles.card}>
-          <div style={styles.cardTitleRow}>
-            <h2 style={styles.h2}>Upload</h2>
-            <span style={styles.mutedSmall}>Backend: {API_BASE}</span>
+        <div style={S.heroInner}>
+          <div style={S.nav}>
+            <div style={S.brand}>Snap2Serve</div>
+
+            <div style={S.searchPill}>
+              <span style={{ opacity: 0.75 }}>🔎</span>
+              <span style={{ opacity: 0.7 }}>Search recipes, cuisines, ingredients…</span>
+            </div>
+
+            <span style={S.chipGold}>Premium</span>
           </div>
 
-          <div style={styles.uploadGrid}>
-            <label style={styles.fileLabel}>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={onFileChange}
-                style={{ display: "none" }}
-              />
-              <span style={styles.fileButton}>
-                {file ? "Change image" : "Choose image"}
-              </span>
-              <span style={styles.fileName}>
-                {file ? file.name : "No file selected"}
-              </span>
+          <div style={S.heroText}>
+            <div style={S.premiumLabel}>PREMIUM</div>
+            <div style={S.heroTitle}>Menu</div>
+            <div style={S.heroTitle2}>Recipevine</div>
+            <div style={S.heroSub}>
+              Upload ingredients → tell us what you want to cook → we’ll generate recipes + shopping list.
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main style={S.main}>
+        <div style={S.sheet}>
+          {/* NEW: blend edge (no sharp seam) */}
+          <div style={S.sheetBlendTop} />
+
+          <div style={S.card}>
+            <div style={S.cardHeader}>
+              <div style={S.cardTitle}>Step 1: Upload ingredients photo</div>
+              <div style={S.smallMuted}>JPG/PNG · 1 image</div>
+            </div>
+
+            <label style={S.filePick}>
+              <input type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+              <span style={S.fileBtn}>{file ? "Change photo" : "Choose photo"}</span>
+              <span style={S.fileName}>{file ? file.name : "No file selected"}</span>
             </label>
 
+            <div style={{ height: 14 }} />
+
             {previewUrl ? (
-              <div style={styles.previewWrap}>
-                <img src={previewUrl} alt="preview" style={styles.previewImg} />
+              <div style={S.previewBox}>
+                <img src={previewUrl} alt="preview" style={S.previewImg} />
               </div>
             ) : (
-              <div style={styles.previewEmpty}>
-                <div style={styles.previewEmptyInner}>
-                  <div style={styles.previewIcon}>📸</div>
-                  <div style={styles.previewText}>
-                    Upload a food photo to start.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div style={styles.actions}>
-              <button
-                onClick={handleScanIngredients}
-                disabled={!canScan}
-                style={primaryBtnStyle(!canScan)}
-              >
-                {loadingScan ? "Scanning..." : "Scan Ingredients"}
-              </button>
-
-              <button
-                onClick={handleGenerateRecipes}
-                disabled={!canGenRecipes}
-                style={secondaryBtnStyle(!canGenRecipes)}
-              >
-                {loadingRecipes ? "Generating..." : "Generate Recipes"}
-              </button>
-            </div>
-
-            {error && (
-              <div style={styles.errorBox}>
-                <div style={{ fontWeight: 800, marginBottom: 6 }}>Error</div>
-                <div style={{ whiteSpace: "pre-wrap" }}>{error}</div>
-                <div style={styles.errorHint}>
-                  Tip: confirm backend is running and endpoints exist:
-                  <code> /vision/ingredients</code>, <code> /agent/recipes</code>
+              <div style={S.previewEmpty}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 34, marginBottom: 6 }}>📷</div>
+                  <div style={S.smallMuted}>Upload a photo of ingredients to begin</div>
                 </div>
               </div>
             )}
           </div>
-        </section>
 
-        {/* Ingredients */}
-        <section style={styles.card}>
-          <div style={styles.cardTitleRow}>
-            <h2 style={styles.h2}>Ingredients</h2>
-            <span style={styles.mutedSmall}>Editable chips</span>
-          </div>
-
-          {ingredients.length === 0 ? (
-            <p style={styles.emptyText}>
-              No ingredients yet. Upload + scan, or add them manually.
-            </p>
-          ) : (
-            <div style={styles.chipsWrap}>
-              {ingredients.map((ing, idx) => (
-                <span key={`${ing.name}-${idx}`} style={styles.chip}>
-                  <input
-                    value={ing.name}
-                    onChange={(e) => renameIngredient(idx, e.target.value)}
-                    style={styles.chipInput}
-                  />
-                  {typeof ing.confidence === "number" ? (
-                    <span style={styles.chipMeta}>
-                      {Math.round(ing.confidence * 100)}%
-                    </span>
-                  ) : null}
-                  <button
-                    onClick={() => removeIngredient(idx)}
-                    style={styles.chipX}
-                    title="Remove"
-                    aria-label="Remove ingredient"
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
+          <div style={S.card}>
+            <div style={S.cardHeader}>
+              <div style={S.cardTitle}>Step 2: What do you want to cook?</div>
+              <div style={S.smallMuted}>Cuisine / dish</div>
             </div>
-          )}
 
-          <div style={styles.addRow}>
             <input
-              placeholder="Add ingredient (press Enter)"
-              value={newIng}
-              onChange={(e) => setNewIng(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  addIngredient(newIng);
-                  setNewIng("");
-                }
-              }}
-              style={styles.textInput}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder='e.g., "Korean spicy chicken", "Japanese ramen", "Healthy salad bowl"'
+              style={S.textInput}
             />
-            <button
-              onClick={() => {
-                addIngredient(newIng);
-                setNewIng("");
-              }}
-              style={secondaryBtnStyle(false)}
-            >
-              Add
-            </button>
-          </div>
-        </section>
 
-        {/* Recipes */}
-        <section style={styles.card}>
-          <div style={styles.cardTitleRow}>
-            <h2 style={styles.h2}>Recipes</h2>
-            <span style={styles.mutedSmall}>Cards</span>
-          </div>
-
-          {recipes.length === 0 ? (
-            <p style={styles.emptyText}>No recipes yet. Click “Generate Recipes”.</p>
-          ) : (
-            <div style={styles.recipeGrid}>
-              {recipes.map((r, idx) => (
-                <article key={`${r.title}-${idx}`} style={styles.recipeCard}>
-                  <div style={styles.recipeTop}>
-                    <div>
-                      <div style={styles.recipeTitle}>{r.title}</div>
-                      <div style={styles.recipeMeta}>
-                        {typeof r.time_mins === "number" ? `${r.time_mins} min` : ""}
-                        {r.difficulty ? ` • ${r.difficulty}` : ""}
-                        {typeof r.source_confidence === "number"
-                          ? ` • ${Math.round(r.source_confidence * 100)}%`
-                          : ""}
-                      </div>
-                    </div>
-
-                    {Array.isArray(r.missing_items) && r.missing_items.length > 0 && (
-                      <button
-                        onClick={() => addMissingToShopping(r.missing_items!)}
-                        style={secondaryBtnStyle(false)}
-                        title="Add missing items to shopping list"
-                      >
-                        Add missing
-                      </button>
-                    )}
-                  </div>
-
-                  {Array.isArray(r.steps) && r.steps.length > 0 && (
-                    <>
-                      <div style={styles.sectionLabel}>Steps</div>
-                      <ol style={styles.steps}>
-                        {r.steps.slice(0, 7).map((s, i) => (
-                          <li key={`${s}-${i}`} style={{ marginBottom: 6 }}>
-                            {s}
-                          </li>
-                        ))}
-                      </ol>
-                    </>
-                  )}
-
-                  {Array.isArray(r.missing_items) && r.missing_items.length > 0 && (
-                    <>
-                      <div style={styles.sectionLabel}>Missing</div>
-                      <div style={styles.missingWrap}>
-                        {r.missing_items.map((m, i) => (
-                          <span key={`${m}-${i}`} style={styles.missingChip}>
-                            {m}
-                          </span>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </article>
-              ))}
+            <div style={S.hint}>
+              Tip: Add constraints like “high protein”, “vegetarian”, “15 mins”, “no oven”.
             </div>
-          )}
-        </section>
 
-        {/* Shopping List */}
-        <section style={styles.card}>
-          <div style={styles.cardTitleRow}>
-            <h2 style={styles.h2}>Shopping List</h2>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={copyShoppingList}
-                disabled={shopping.length === 0}
-                style={secondaryBtnStyle(shopping.length === 0)}
-              >
-                Copy
-              </button>
-              <button
-                onClick={() => setShopping([])}
-                disabled={shopping.length === 0}
-                style={secondaryBtnStyle(shopping.length === 0)}
-              >
-                Clear
+            <div style={S.ctaRow}>
+              <button onClick={handleContinue} disabled={!canContinue} style={goldBtn(!canContinue)}>
+                Continue →
               </button>
             </div>
           </div>
-
-          {shopping.length === 0 ? (
-            <p style={styles.emptyText}>
-              No items yet. Use “Add missing” from a recipe.
-            </p>
-          ) : (
-            <ul style={styles.shopList}>
-              {shopping.map((item, idx) => (
-                <li key={`${item}-${idx}`} style={styles.shopItem}>
-                  <label style={styles.shopLabel}>
-                    <input type="checkbox" />
-                    <span style={{ flex: 1 }}>{item}</span>
-                    <button
-                      onClick={() => removeShoppingItem(idx)}
-                      style={styles.shopX}
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
       </main>
     </div>
   );
 }
 
-/* =======================
-   THEME
-======================= */
-const theme = {
-  primary: "#6D28D9", // purple
-  accent: "#22C55E", // green
-  bg: "#F7F7FB",
-  card: "#FFFFFF",
-  text: "#0F172A",
-  muted: "#64748B",
-  border: "rgba(15, 23, 42, 0.10)",
+/* ===== Theme ===== */
+const T = {
+  text: "#0f172a",
+  muted: "rgba(15,23,42,.58)",
+  border: "rgba(15,23,42,.10)",
+  gold: "#D7B26A",
 };
 
-function withAlpha(hex: string, alpha: number) {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/* =======================
-   BUTTONS
-======================= */
-function primaryBtnStyle(disabled: boolean): React.CSSProperties {
+function goldBtn(disabled: boolean): React.CSSProperties {
   return {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: `1px solid ${withAlpha(theme.primary, 0.25)}`,
-    background: disabled ? withAlpha(theme.primary, 0.15) : theme.primary,
-    color: "#fff",
+    padding: "12px 16px",
+    borderRadius: 16,
+    border: `1px solid ${disabled ? T.border : "rgba(215,178,106,.55)"}`,
+    background: disabled ? "rgba(0,0,0,.06)" : T.gold,
+    color: disabled ? "rgba(0,0,0,.35)" : "#111",
+    fontWeight: 950,
     cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 800,
-    boxShadow: disabled ? "none" : `0 10px 22px ${withAlpha(theme.primary, 0.25)}`,
   };
 }
 
-function secondaryBtnStyle(disabled: boolean): React.CSSProperties {
-  return {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: `1px solid ${theme.border}`,
-    background: disabled ? "rgba(0,0,0,0.03)" : theme.card,
-    color: disabled ? "rgba(0,0,0,0.35)" : theme.text,
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 700,
-  };
-}
+const S: Record<string, React.CSSProperties> = {
+  page: { minHeight: "100vh", background: "#0b0f14", color: "#fff" },
 
-/* =======================
-   STYLES
-======================= */
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: `radial-gradient(1200px 600px at 20% 10%, ${withAlpha(
-      theme.primary,
-      0.10
-    )}, transparent),
-      radial-gradient(900px 500px at 90% 0%, ${withAlpha(
-        theme.accent,
-        0.10
-      )}, transparent),
-      ${theme.bg}`,
-    padding: 20,
-    color: theme.text,
+  hero: {
+    height: 420,
+    position: "relative",
+    backgroundImage:
+      "url('https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?auto=format&fit=crop&w=1600&q=80')",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
   },
-  container: {
-    maxWidth: 980,
-    margin: "0 auto",
+  heroOverlay: {
+    position: "absolute",
+    inset: 0,
+    background:
+      "linear-gradient(90deg, rgba(0,0,0,.88), rgba(0,0,0,.40) 55%, rgba(0,0,0,.18))",
+  },
+  // NEW: vignette gives depth + natural fade (no horizontal band)
+  heroVignette: {
+    position: "absolute",
+    inset: 0,
+    background:
+      "radial-gradient(1200px 520px at 30% 30%, rgba(0,0,0,0) 0%, rgba(0,0,0,.35) 55%, rgba(11,15,20,.95) 100%)",
+    pointerEvents: "none",
+  },
+
+  heroInner: { position: "relative", maxWidth: 1180, margin: "0 auto", padding: "18px 18px 0" },
+  nav: { display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 14, alignItems: "center" },
+  brand: { fontWeight: 950, fontSize: 18 },
+
+  searchPill: {
+    height: 44,
+    borderRadius: 999,
+    padding: "0 14px",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    border: "1px solid rgba(255,255,255,.14)",
+    background: "rgba(0,0,0,.30)",
+    backdropFilter: "blur(10px)",
+    maxWidth: 720,
+  },
+  chipGold: {
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(215,178,106,.55)",
+    background: "rgba(0,0,0,.30)",
+    color: T.gold,
+    fontWeight: 900,
+    fontSize: 12,
+    justifySelf: "end",
+  },
+
+  heroText: { marginTop: 70, maxWidth: 640 },
+  premiumLabel: { letterSpacing: 2, opacity: 0.75, fontSize: 12, fontWeight: 700 },
+  heroTitle: { fontSize: 72, fontWeight: 950, lineHeight: 1, marginTop: 6 },
+  heroTitle2: { fontSize: 72, fontWeight: 950, lineHeight: 1, fontStyle: "italic" },
+  heroSub: { marginTop: 14, maxWidth: 520, fontSize: 14, opacity: 0.86 },
+
+  main: { padding: "0 18px 56px", background: "#0b0f14" },
+
+  sheet: {
+    position: "relative",
+    maxWidth: 1020,
+    margin: "-30px auto 0",
+    padding: 18,
+    borderRadius: 28,
+    background: "rgba(246,246,247,.94)",
+    border: "1px solid rgba(255,255,255,.12)",
+    boxShadow: "0 40px 120px rgba(0,0,0,.55)",
+    color: T.text,
     display: "grid",
     gap: 14,
+    overflow: "hidden",
   },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 12,
-    padding: "10px 6px",
-  },
-  h1: { margin: 0, fontSize: 34, letterSpacing: -0.5 },
-  sub: { margin: "8px 0 0", color: theme.muted },
-  badge: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: `1px solid ${theme.border}`,
-    background: theme.card,
-    fontSize: 12,
-    fontWeight: 800,
-    color: theme.primary,
-    height: "fit-content",
+
+  // NEW: top blend that looks like the sheet is “melting” into hero
+  sheetBlendTop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: -28,
+    height: 70,
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.35) 45%, rgba(255,255,255,0) 100%)",
+    filter: "blur(12px)",
+    pointerEvents: "none",
+    opacity: 0.9,
   },
 
   card: {
-    background: theme.card,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: `0 10px 28px rgba(0,0,0,0.06)`,
+    background: "#fff",
+    border: `1px solid ${T.border}`,
+    borderRadius: 22,
+    padding: 14,
+    boxShadow: "0 10px 30px rgba(15,23,42,.06)",
   },
-  cardTitleRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  h2: { margin: 0, fontSize: 18 },
-  mutedSmall: { fontSize: 12, color: theme.muted },
+  cardHeader: { display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 10 },
+  cardTitle: { fontSize: 16, fontWeight: 950 },
+  smallMuted: { fontSize: 12, color: T.muted },
 
-  uploadGrid: { display: "grid", gap: 12 },
-  fileLabel: {
+  filePick: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     padding: 12,
-    borderRadius: 14,
-    border: `1px dashed ${withAlpha(theme.primary, 0.35)}`,
-    background: withAlpha(theme.primary, 0.06),
+    borderRadius: 18,
+    border: `1px solid ${T.border}`,
+    background: "rgba(0,0,0,.015)",
   },
-  fileButton: {
-    padding: "8px 12px",
-    borderRadius: 12,
-    border: `1px solid ${theme.border}`,
-    background: theme.card,
-    fontWeight: 800,
+  fileBtn: {
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: `1px solid ${T.border}`,
+    background: "rgba(0,0,0,.03)",
+    fontWeight: 900,
     cursor: "pointer",
     whiteSpace: "nowrap",
-    color: theme.primary,
   },
-  fileName: { fontSize: 13, color: theme.muted, overflow: "hidden", textOverflow: "ellipsis" },
+  fileName: { color: T.muted, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis" },
 
-  previewWrap: {
-    borderRadius: 16,
+  previewBox: {
+    borderRadius: 18,
     overflow: "hidden",
-    border: `1px solid ${theme.border}`,
+    border: `1px solid ${T.border}`,
+    boxShadow: "0 18px 50px rgba(0,0,0,.10)",
   },
-  previewImg: { width: "100%", height: 280, objectFit: "cover", display: "block" },
+  previewImg: { width: "100%", height: 300, objectFit: "cover", display: "block" },
+
   previewEmpty: {
-    height: 280,
-    borderRadius: 16,
-    border: `1px solid ${theme.border}`,
-    background: `linear-gradient(180deg, ${withAlpha(theme.primary, 0.05)}, transparent)`,
+    height: 300,
+    borderRadius: 18,
+    border: `1px solid ${T.border}`,
+    background: "radial-gradient(circle at 50% 40%, rgba(215,178,106,.12), rgba(0,0,0,0) 55%)",
     display: "grid",
     placeItems: "center",
   },
-  previewEmptyInner: { textAlign: "center", maxWidth: 360, padding: 12 },
-  previewIcon: { fontSize: 34, marginBottom: 8 },
-  previewText: { color: theme.muted, fontSize: 13 },
 
-  actions: { display: "flex", gap: 10, flexWrap: "wrap" },
-
-  errorBox: {
-    borderRadius: 16,
-    border: `1px solid rgba(239,68,68,0.35)`,
-    background: `rgba(239,68,68,0.08)`,
-    padding: 12,
-  },
-  errorHint: { marginTop: 8, fontSize: 12, color: theme.muted },
-
-  chipsWrap: { display: "flex", flexWrap: "wrap", gap: 8 },
-  chip: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 10px",
-    borderRadius: 999,
-    border: `1px solid ${withAlpha(theme.primary, 0.20)}`,
-    background: withAlpha(theme.primary, 0.07),
-  },
-  chipInput: {
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    fontSize: 14,
-    minWidth: 70,
-    color: theme.text,
-  },
-  chipMeta: { fontSize: 12, color: theme.muted },
-  chipX: {
-    border: "none",
-    background: "transparent",
-    cursor: "pointer",
-    opacity: 0.7,
-    fontSize: 14,
-    color: theme.primary,
-  },
-
-  addRow: { marginTop: 12, display: "flex", gap: 10 },
   textInput: {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: `1px solid ${theme.border}`,
+    width: "100%",
+    padding: "14px 14px",
+    borderRadius: 16,
+    border: `1px solid ${T.border}`,
     outline: "none",
+    fontWeight: 750,
+    fontSize: 14,
+    background: "rgba(255,255,255,.98)",
   },
-
-  emptyText: { margin: 0, color: theme.muted },
-
-  recipeGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: 12,
-  },
-  recipeCard: {
-    borderRadius: 18,
-    border: `1px solid ${theme.border}`,
-    background: `linear-gradient(180deg, ${withAlpha(theme.primary, 0.03)}, transparent)`,
-    padding: 14,
-  },
-  recipeTop: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
-  recipeTitle: { fontWeight: 900, fontSize: 16, letterSpacing: -0.2 },
-  recipeMeta: { marginTop: 6, fontSize: 12, color: theme.muted },
-
-  sectionLabel: { marginTop: 12, marginBottom: 6, fontWeight: 900, fontSize: 12, color: theme.muted },
-  steps: { marginTop: 0, marginBottom: 0, paddingLeft: 18 },
-
-  missingWrap: { display: "flex", flexWrap: "wrap", gap: 8 },
-  missingChip: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: `1px dashed ${withAlpha(theme.accent, 0.45)}`,
-    background: withAlpha(theme.accent, 0.08),
-    fontSize: 13,
-    color: theme.text,
-  },
-
-  shopList: { marginTop: 10, marginBottom: 0, paddingLeft: 0, listStyle: "none" },
-  shopItem: { padding: "8px 0", borderBottom: "1px solid rgba(0,0,0,0.06)" },
-  shopLabel: { display: "flex", alignItems: "center", gap: 10 },
-  shopX: { border: "none", background: "transparent", cursor: "pointer", opacity: 0.7, color: theme.primary },
+  hint: { marginTop: 10, fontSize: 12, color: T.muted },
+  ctaRow: { marginTop: 14, display: "flex", justifyContent: "flex-end" },
 };
-
-
