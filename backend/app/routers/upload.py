@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from typing import Dict, Any
-import uuid
+from app.services.vision_service import detect_ingredients_via_cv
 
 router = APIRouter()
 
@@ -9,12 +9,14 @@ async def upload_image_route(image: UploadFile = File(...)) -> Dict[str, Any]:
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload an image file.")
 
-    content = await image.read()
+    image_bytes = await image.read()
 
-    return {
-        "image_id": str(uuid.uuid4()),
-        "filename": image.filename,
-        "content_type": image.content_type,
-        "size_bytes": len(content),
-        "note": "Image received. (Storage disabled) Plug CV here next."
-    }
+    cv_result = await detect_ingredients_via_cv(
+        image_bytes=image_bytes,
+        filename=image.filename or "image.jpg",
+        content_type=image.content_type or "image/jpeg",
+    )
+
+    # Return exactly what frontend expects:
+    # { "ingredients_detected": [ {"name": "...", "confidence": ...}, ... ] }
+    return cv_result
