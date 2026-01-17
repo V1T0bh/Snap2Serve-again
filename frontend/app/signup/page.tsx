@@ -32,6 +32,8 @@ export default function SignupPage() {
     }
   };
 
+  console.log(process.env.NEXT_PUBLIC_FIREBASE_API_KEY)
+  
   return (
     <main style={styles.page}>
       <div style={styles.container}>
