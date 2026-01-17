@@ -94,10 +94,6 @@ export default function SignupPage() {
               {loading ? "Loading..." : mode === "login" ? "Login" : "Create account"}
             </button>
           </form>
-
-          <button onClick={() => router.push("/")} style={styles.ghost}>
-            ← Back to Home
-          </button>
         </div>
       </div>
     </main>
