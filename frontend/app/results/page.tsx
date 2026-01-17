@@ -2,18 +2,22 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type Ingredient = { name: string; confidence?: number };
 
 type Recipe = {
   title: string;
   short_steps?: string;
+  instructions?: string;
+  ingredients?: string[];
   missing_items?: string[];
 };
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 export default function ResultsPage() {
+  const router = useRouter();
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string>("");
 
@@ -179,7 +183,14 @@ export default function ResultsPage() {
         ) : (
           <div style={S.recipeGrid}>
             {recipes.map((r, idx) => (
-              <div key={idx} style={S.recipeCard}>
+              <div
+                key={idx}
+                style={S.recipeCard}
+                onClick={() => {
+                  sessionStorage.setItem("snap2serve:selected_recipe", JSON.stringify(r));
+                  router.push("/recipe");
+                }}
+              >
                 <div style={S.recipeTop}>
                   <div style={S.recipeName}>{r.title}</div>
                 </div>
@@ -336,7 +347,12 @@ const S: Record<string, any> = {
     padding: 14,
     border: "1px solid rgba(255,255,255,.12)",
     boxShadow: "0 30px 80px rgba(0,0,0,.35)",
-    transition: "transform .12s ease",
+    transition: "transform .12s ease, box-shadow .12s ease",
+    cursor: "pointer",
+  }
+, recipeCardHover: {
+    transform: "translateY(-4px)",
+    boxShadow: "0 40px 100px rgba(0,0,0,.45)",
   },
   recipeTop: { marginBottom: 8 },
   recipeName: { fontWeight: 950, fontSize: 16, lineHeight: 1.2 },

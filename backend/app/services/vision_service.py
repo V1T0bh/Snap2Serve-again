@@ -2,7 +2,7 @@ import os
 import httpx
 from fastapi import HTTPException
 
-VISION_URL = os.getenv("VISION_URL", "").rstrip("/")
+VISION_URL = os.getenv("VISION_URL")
 
 async def detect_ingredients_via_cv(image_bytes: bytes, filename: str, content_type: str) -> dict:
     if not VISION_URL:
