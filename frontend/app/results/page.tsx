@@ -7,13 +7,8 @@ type Ingredient = { name: string; confidence?: number };
 
 type Recipe = {
   title: string;
-  url: string;
-  source?: string;
-  summary?: string;
-  time_mins?: number;
-  score?: number;
-  ingredients_used?: string[];
-  missing?: string[];
+  short_steps?: string;
+  missing_items?: string[];
 };
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
@@ -24,6 +19,7 @@ export default function ResultsPage() {
 
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [shoppingList, setShoppingList] = useState<Record<string, string[]> | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState<string>("");
@@ -57,36 +53,36 @@ export default function ResultsPage() {
       const blob = await (await fetch(imageDataUrl)).blob();
       const file = new File([blob], "ingredients.jpg", { type: blob.type || "image/jpeg" });
 
-      // 2) POST /vision/ingredients (multipart/form-data)
+      // 2) POST /upload/image (multipart/form-data) - this detects ingredients
       const form = new FormData();
       form.append("image", file);
 
       setStage("Detecting ingredients…");
-      const ingRes = await fetch(`${BACKEND}/vision/ingredients`, {
+      const ingRes = await fetch(`${BACKEND}/upload/image`, {
         method: "POST",
         body: form,
       });
 
       if (!ingRes.ok) throw new Error(await ingRes.text());
       const ingJson = await ingRes.json();
-      const ingList: Ingredient[] = ingJson.ingredients ?? [];
+      const ingList: Ingredient[] = ingJson.ingredients_detected ?? [];
       setIngredients(ingList);
 
-      // 3) POST /agent/recipes (JSON)
+      // 3) POST /agent/recommend (JSON)
       setStage("Finding best recipes online…");
-      const recipeRes = await fetch(`${BACKEND}/agent/recipes`, {
+      const recipeRes = await fetch(`${BACKEND}/agent/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ingredients: ingList.map((x) => x.name),
-          prompt: prompt, // cuisine/dish preference
-          top_k: 8,
+          ingredients_confirmed: ingList.map((x) => x.name),
+          preference_text: prompt, // cuisine/dish preference
         }),
       });
 
       if (!recipeRes.ok) throw new Error(await recipeRes.text());
       const recipeJson = await recipeRes.json();
       setRecipes(recipeJson.recipes ?? []);
+      setShoppingList(recipeJson.shopping_list ?? null);
       setStage("");
     } catch (e: any) {
       setError(e?.message || "Something went wrong.");
@@ -183,36 +179,42 @@ export default function ResultsPage() {
         ) : (
           <div style={S.recipeGrid}>
             {recipes.map((r, idx) => (
-              <a key={idx} href={r.url} target="_blank" rel="noreferrer" style={S.recipeCard}>
+              <div key={idx} style={S.recipeCard}>
                 <div style={S.recipeTop}>
                   <div style={S.recipeName}>{r.title}</div>
-                  <div style={S.recipeMeta}>
-                    {r.source ? <span>{r.source}</span> : null}
-                    {typeof r.time_mins === "number" ? <span>· {r.time_mins} mins</span> : null}
-                    {typeof r.score === "number" ? <span>· score {r.score.toFixed(2)}</span> : null}
-                  </div>
                 </div>
 
-                {r.summary ? <div style={S.recipeSummary}>{r.summary}</div> : null}
+                {r.short_steps ? <div style={S.recipeSummary}>{r.short_steps}</div> : null}
 
-                {Array.isArray(r.ingredients_used) && r.ingredients_used.length > 0 ? (
-                  <div style={S.smallRow}>
-                    <span style={S.smallLabel}>Uses:</span>{" "}
-                    <span style={S.smallText}>{r.ingredients_used.join(", ")}</span>
-                  </div>
-                ) : null}
-
-                {Array.isArray(r.missing) && r.missing.length > 0 ? (
+                {Array.isArray(r.missing_items) && r.missing_items.length > 0 ? (
                   <div style={S.smallRow}>
                     <span style={S.smallLabel}>Missing:</span>{" "}
-                    <span style={S.smallText}>{r.missing.join(", ")}</span>
+                    <span style={S.smallText}>{r.missing_items.join(", ")}</span>
                   </div>
                 ) : null}
-
-                <div style={S.openLink}>Open recipe ↗</div>
-              </a>
+              </div>
             ))}
           </div>
+        )}
+
+        {/* Shopping List */}
+        {shoppingList && Object.keys(shoppingList).length > 0 && (
+          <>
+            <div style={{ height: 14 }} />
+            <div style={S.sectionTitle}>Shopping list</div>
+            <div style={S.shoppingList}>
+              {Object.entries(shoppingList).map(([category, items]) => (
+                <div key={category} style={S.shoppingCategory}>
+                  <div style={S.categoryTitle}>{category}</div>
+                  <ul style={S.categoryItems}>
+                    {items.map((item, idx) => (
+                      <li key={idx} style={S.categoryItem}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -344,6 +346,12 @@ const S: Record<string, any> = {
   smallLabel: { opacity: 0.6, fontWeight: 900 },
   smallText: { opacity: 0.9 },
   openLink: { marginTop: 12, fontSize: 12, fontWeight: 950, color: "#111827", opacity: 0.85 },
+
+  shoppingList: { marginTop: 12, display: "flex", flexDirection: "column", gap: 12 },
+  shoppingCategory: { background: "rgba(255,255,255,.94)", borderRadius: 16, padding: 14, border: "1px solid rgba(255,255,255,.12)" },
+  categoryTitle: { fontWeight: 950, fontSize: 14, marginBottom: 8, color: "#000" },
+  categoryItems: { margin: 0, paddingLeft: 16 },
+  categoryItem: { fontSize: 13, lineHeight: 1.4, color: "#000" },
 
   muted: { opacity: 0.7 },
 };
